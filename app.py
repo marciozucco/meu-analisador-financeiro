@@ -15,7 +15,7 @@ gemini_api_key = st.sidebar.text_input("Digite sua Gemini API Key:", type="passw
 st.sidebar.markdown("[Obter chave grátis](https://aistudio.google.com/)")
 st.sidebar.markdown("---")
 
-# --- LISTAS EXPANDIDAS PARA EXATAMENTE 15 ATIVOS POR CATEGORIA ---
+# --- LISTAS EXPANDIDAS DE MONITORAMENTO (15 POR CATEGORIA) ---
 SCANNER_BR_ACOES = [
     "VALE3.SA", "PETR4.SA", "ITUB4.SA", "WEGE3.SA", "BBAS3.SA",
     "BBDC4.SA", "ABEV3.SA", "ELET3.SA", "RENT3.SA", "ITSA4.SA",
@@ -89,7 +89,7 @@ def analisar_saude_ativos(lista_tickers):
             pe_ratio = info.get("trailingPE", "N/A")
             price_to_book = info.get("priceToBook", "N/A")
             
-            # Tratamento do Dividend Yield para evitar distorções
+            # Tratamento robusto do Dividend Yield
             raw_dy = info.get("dividendYield", 0)
             if raw_dy is None:
                 raw_dy = 0
@@ -103,21 +103,27 @@ def analisar_saude_ativos(lista_tickers):
             pvp_str = f"{price_to_book:.2f}" if isinstance(price_to_book, (int, float)) else "N/A"
             dy_str = f"{dividend_yield_final:.2f}%"
 
-            # Definição das sugestões de saúde do ativo
+            # Classificação rígida de recomendação
             if is_fii:
-                if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.08 and dividend_yield_final > 5.0:
-                    saude, sugestao = "Excelente ❤️ (Preço Justo)", "Forte Compra"
+                if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.09 and dividend_yield_final > 5.0:
+                    status_carteira = "COMPRAR 🔥"
+                    detalhe = "Excelente desconto patrimonial e renda sólida."
                 elif dividend_yield_final > 4.0:
-                    saude, sugestao = "Regular 🟡", "Manter / Observar"
+                    status_carteira = "QUARENTENA ⚠️"
+                    detalhe = "Apenas manter caso já possua. Preço esticado."
                 else:
-                    saude, sugestao = "Fraca ⚠️", "Evitar no Momento"
+                    status_carteira = "EVITAR ❌"
+                    detalhe = "Baixo rendimento ou risco estrutural."
             else:
-                if roe > 0.12 and margem > 0.10 and divida < 130:
-                    saude, sugestao = "Excelente ❤️", "Forte Compra"
-                elif roe > 0.05 and margem > 0.05:
-                    saude, sugestao = "Regular 🟡", "Observar"
+                if roe > 0.11 and margem > 0.09 and divida < 140:
+                    status_carteira = "COMPRAR 🔥"
+                    detalhe = "Empresa altamente eficiente e com saúde financeira."
+                elif roe > 0.04 and margem > 0.04:
+                    status_carteira = "QUARENTENA ⚠️"
+                    detalhe = "Empresa estável, mas fora do ponto ideal de entrada."
                 else:
-                    saude, sugestao = "Fraca ⚠️", "Evitar / Risco"
+                    status_carteira = "EVITAR ❌"
+                    detalhe = "Indicadores fracos ou endividamento alarmante."
                 
             dados_filtrados.append({
                 "Ticker": ticker_limpo, "Nome": nome, "Classe": "FII / REIT" if is_fii else "Ação", "Preço": preco,
@@ -125,7 +131,7 @@ def analisar_saude_ativos(lista_tickers):
                 "Margem Líquida": f"{margem*100:.2f}%" if not is_fii else "N/A", 
                 "Dívida/Patr.": f"{divida:.1f}%" if divida else "0.0%",
                 "P/L": pe_str, "P/VP (Múltiplo)": pvp_str, "Div. Yield (DY)": dy_str,
-                "Saúde": saude, "Sugestão": sugestao
+                "Decisão da Carteira": status_carteira, "Diagnóstico": detalhe
             })
         except:
             continue
@@ -141,60 +147,87 @@ def pedir_analise_ia(df_dados, tipo_analise):
         dados_texto = df_dados.to_string(index=False) if isinstance(df_dados, pd.DataFrame) else str(df_dados)
         
         prompt = f"""
-        Você é um analista financeiro experiente especializado em alocação de portfólios.
-        Abaixo estão dados reais extraídos ao vivo do mercado:
+        Você é um analista financeiro CFP experiente.
+        Abaixo estão os dados analisados e filtrados pelo algoritmo:
         {dados_texto}
         
-        Forneça um laudo em português usando tópicos e negritos:
-        1. Avalie a lista de ativos escaneada e destaque as melhores oportunidades agregadas.
-        2. Justifique os destaques usando os dados de Dividend Yield (DY) e P/VP fornecidos de forma realista.
-        Seja analítico, prático e direto.
+        Gere um relatório macro em português usando tópicos e negritos indicando:
+        1. Por que os ativos marcados com 'COMPRAR 🔥' foram selecionados.
+        2. Um aviso rápido sobre o perigo dos ativos da lista de 'QUARENTENA/EVITAR'.
+        Seja muito direto, prático e focado em apoiar a decisão do investidor.
         """
         resposta = model.generate_content(prompt)
         return resposta.text
     except Exception as e:
         return f"❌ Erro ao conectar com o Gemini: {e}."
 
-# --- INTERFACE ---
+# --- INTERFACE DO USUÁRIO ---
 menu = st.sidebar.radio("Navegação", ["🎯 Carteira Recomendada", "🧮 Calculadora de Alocação (Com FIIs)", "🔍 Busca Global de Qualquer Ativo"])
 
 if menu == "🎯 Carteira Recomendada":
-    st.header("🎯 Scanner de Mercado: Carteiras de Ações & FIIs")
-    st.write("Análise em tempo real de grandes ativos divididos por classes de investimento (Mantendo o TOP 15 sempre atualizado).")
+    st.header("🎯 Scanner de Mercado Inteligente")
+    st.write("O sistema analisa os dados fundamentalistas ao vivo e filtra o mercado exatamente entre o que comprar e o que evitar.")
     
     mercado = st.selectbox("Escolha o Mercado para Monitorar:", ["Mercado Brasileiro (B3)", "Mercado Internacional (EUA)"])
     
-    if st.button("Escanear Mercado Agora"):
-        with st.spinner("Varrendo cotações, dividendos e balanços dos 30 ativos selecionados..."):
+    if st.button("Escanear e Montar Carteiras"):
+        with st.spinner("Varrendo e aplicando filtros de segurança em todos os ativos..."):
             lista_acoes = SCANNER_BR_ACOES if "Brasileiro" in mercado else SCANNER_EUA_ACOES
             lista_fiis = SCANNER_BR_FIIS if "Brasileiro" in mercado else SCANNER_EUA_REITS
             
             df_geral = analisar_saude_ativos(lista_acoes + lista_fiis)
             
             if not df_geral.empty:
-                tab_acoes, tab_fiis = st.tabs(["📈 Ações Recomendadas (TOP 15)", "🏢 Fundos Imobiliários / REITs (TOP 15)"])
+                # --- SEÇÃO 1: CARTEIRA DE COMPRA RECOMENDADA ---
+                st.markdown("## 🔥 O QUE COMPRAR AGORA (Ativos Recomendados)")
+                st.info("Estes ativos passaram em todos os testes de margem de lucro, dívida controlada ou desconto patrimonial atraente.")
                 
-                with tab_acoes:
-                    df_s_acoes = df_geral[df_geral["Classe"] == "Ação"].reset_index(drop=True)
-                    st.dataframe(df_s_acoes, use_container_width=True)
-                    
-                with tab_fiis:
-                    df_s_fiis = df_geral[df_geral["Classe"] == "FII / REIT"].reset_index(drop=True)
-                    st.dataframe(df_s_fiis, use_container_width=True)
+                df_compras = df_geral[df_geral["Decisão da Carteira"] == "COMPRAR 🔥"].reset_index(drop=True)
                 
-                st.success("🤖 Destaques do Robô (Ativos classificados como 'Forte Compra'):")
-                df_fortes = df_geral[df_geral["Sugestão"] == "Forte Compra"].reset_index(drop=True)
-                if not df_fortes.empty:
-                    st.dataframe(df_fortes[["Ticker", "Nome", "Classe", "P/VP (Múltiplo)", "Div. Yield (DY)", "Sugestão"]], use_container_width=True)
+                if not df_compras.empty:
+                    tab_compra_acoes, tab_compra_fiis = st.tabs(["📈 Ações para Comprar", "🏢 FIIs / REITs para Comprar"])
+                    with tab_compra_acoes:
+                        df_c_ac = df_compras[df_compras["Classe"] == "Ação"]
+                        if not df_c_ac.empty:
+                            st.dataframe(df_c_ac.drop(columns=["Decisão da Carteira"]), use_container_width=True)
+                        else:
+                            st.warning("Nenhuma ação das 15 avaliadas cumpre todos os requisitos rígidos de compra hoje.")
+                            
+                    with tab_compra_fiis:
+                        df_c_fi = df_compras[df_compras["Classe"] == "FII / REIT"]
+                        if not df_c_fi.empty:
+                            st.dataframe(df_c_fi.drop(columns=["Decisão da Carteira"]), use_container_width=True)
+                        else:
+                            st.warning("Nenhum fundo imobiliário das 15 avaliados cumpre todos os requisitos rígidos de compra hoje.")
                 else:
-                    st.info("Nenhum ativo com desconto extremo hoje. Siga a tabela geral das abas.")
+                    st.error("Alerta de Mercado: Nenhum ativo obteve nota máxima de compra neste momento.")
+
+                st.markdown("---")
+
+                # --- SEÇÃO 2: ATIVOS EM QUARENTENA OU RISCO ---
+                st.markdown("## ⚠️ ATIVOS FORA DA CARTEIRA DE COMPRA (Quarentena / Evitar)")
+                st.warning("Estes ativos estão caros (múltiplos elevados), muito endividados ou apresentando lucros instáveis na janela atual.")
                 
-                st.subheader("🧠 Relatório Estratégico da Inteligência Artificial")
+                df_quarentena = df_geral[df_geral["Decisão da Carteira"] != "COMPRAR 🔥"].reset_index(drop=True)
+                
+                if not df_quarentena.empty:
+                    tab_q_acoes, tab_q_fiis = st.tabs(["📉 Ações (Quarentena/Evitar)", "🏚️ FIIs / REITs (Quarentena/Evitar)"])
+                    with tab_q_acoes:
+                        df_q_ac = df_quarentena[df_quarentena["Classe"] == "Ação"]
+                        st.dataframe(df_q_ac, use_container_width=True)
+                    with tab_q_fiis:
+                        df_q_fi = df_quarentena[df_quarentena["Classe"] == "FII / REIT"]
+                        st.dataframe(df_q_fi, use_container_width=True)
+
+                # --- RELATÓRIO DA IA ---
+                st.markdown("---")
+                st.subheader("🧠 Relatório Estratégico do Analista Virtual IA")
                 relatorio = pedir_analise_ia(df_geral, "Carteira")
                 st.markdown(relatorio)
             else:
-                st.error("Erro ao puxar os dados do Yahoo Finance.")
+                st.error("Erro ao puxar dados do provedor Yahoo Finance.")
 
+# 2. ABA: CALCULADORA
 elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
     st.header("🧮 Calculadora Patrimonial Inteligente")
     st.write("Configuração matemática de aportes para o **Perfil Moderado**.")
@@ -245,6 +278,7 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
             relatorio_ia = pedir_analise_ia(df_distribuido, "Plano de Alocação Customizado")
             st.markdown(relatorio_ia)
 
+# 3. ABA: BUSCA
 elif menu == "🔍 Busca Global de Qualquer Ativo":
     st.header("🔍 Mecanismo de Busca Inteligente Global")
     st.write("Encontre qualquer papel do mundo (Ações, Fundos Imobiliários Brasileiros, REITs Americanos, ETFs).")
@@ -264,12 +298,4 @@ elif menu == "🔍 Busca Global de Qualquer Ativo":
             
             if st.button(f"Analisar Fundamentalista de {ticker_alvo}"):
                 with st.spinner("Acessando balanços consolidados..."):
-                    df_ind = analisar_saude_ativos([ticker_alvo])
-                    if not df_ind.empty:
-                        st.dataframe(df_ind, use_container_width=True)
-                        st.subheader("🧠 Avaliação da IA")
-                        st.markdown(pedir_analise_ia(df_ind, ticker_alvo))
-                    else:
-                        st.error("Dados fundamentalistas insuficientes para este ativo no momento.")
-        else:
-            st.warning("Nenhum ativo encontrado com esse nome.")
+                    df_ind = analisar
