@@ -68,7 +68,6 @@ def buscar_ticker_global(termo_busca):
 # --- FUNÇÃO DE ANÁLISE FUNDAMENTALISTA EM TEMPO REAL ---
 def analisar_saude_ativos(lista_tickers, mercado_selecionado):
     dados_filtrados = []
-    # Define o prefixo da moeda com base no mercado escolhido
     moeda_prefixo = "R$ " if "B3" in mercado_selecionado else "US$ "
     
     for ticker in lista_tickers:
@@ -82,16 +81,16 @@ def analisar_saude_ativos(lista_tickers, mercado_selecionado):
             preco_formatado = f"{moeda_prefixo}{preco_bruto:,.2f}"
             
             tipo = info.get("quoteType", "N/A")
+            
+            # CORREÇÃO AQUI: Identifica se faz parte explicitamente da lista de REITs cadastrada
             is_fii = "11.SA" in ticker_limpo or ticker_limpo in SCANNER_EUA_REITS or tipo == "ETF"
             
-            # Captura de Indicadores
             roe = info.get("returnOnEquity", 0) or 0
             margem = info.get("profitMargins", 0) or 0
             divida = info.get("debtToEquity", 0) or 0
             pe_ratio = info.get("trailingPE", "N/A")
             price_to_book = info.get("priceToBook", "N/A")
             
-            # Tratamento do Dividend Yield
             raw_dy = info.get("dividendYield", 0)
             if raw_dy is None:
                 raw_dy = 0
@@ -105,11 +104,10 @@ def analisar_saude_ativos(lista_tickers, mercado_selecionado):
             pvp_str = f"{price_to_book:.2f}" if isinstance(price_to_book, (int, float)) else "N/A"
             dy_str = f"{dividend_yield_final:.2f}%"
 
-            # Classificação estrita
             if is_fii:
-                if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.09 and dividend_yield_final > 5.0:
+                if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.25 and dividend_yield_final > 4.5:
                     status_carteira = "🔥 COMPRAR"
-                elif dividend_yield_final > 4.0:
+                elif dividend_yield_final > 3.5:
                     status_carteira = "⚠️ QUARENTENA"
                 else:
                     status_carteira = "❌ EVITAR"
@@ -131,7 +129,7 @@ def analisar_saude_ativos(lista_tickers, mercado_selecionado):
             })
         except:
             dados_filtrados.append({
-                "Ticker": ticker.upper(), "Nome": "Erro de Conexão Yahoo", "Classe": "FII / REIT" if "11.SA" in ticker else "Ação",
+                "Ticker": ticker.upper(), "Nome": "Erro de Conexão Yahoo", "Classe": "FII / REIT" if ("11.SA" in ticker or ticker in SCANNER_EUA_REITS) else "Ação",
                 "Preço": f"{moeda_prefixo}0.00", "ROE": "N/A", "Margem Líquida": "N/A", "Dívida/Patr.": "N/A", "P/L": "N/A", "P/VP (Múltiplo)": "N/A",
                 "Div. Yield (DY)": "N/A", "Decisão da Carteira": "⚠️ REAVALIAR"
             })
@@ -167,27 +165,30 @@ def pedir_analise_ia(df_dados, tipo_analise):
 menu = st.sidebar.radio("Navegação", ["🎯 Carteira Recomendada", "🧮 Calculadora de Alocação (Com FIIs)", "🔍 Busca Global de Qualquer Ativo"])
 
 if menu == "🎯 Carteira Recomendada":
-    st.header("🎯 Scanner de Mercado Permanente: Top 15 Ações & Top 15 FIIs")
+    st.header("🎯 Scanner de Mercado Permanente: Top 15 Ações & Top 15 FIIs / REITs")
     st.write("Abaixo você acompanha a lista fixa dos 15 ativos selecionados por classe. Olhe a coluna **'Decisão da Carteira'** para saber quais comprar.")
     
     mercado = st.selectbox("Escolha o Mercado para Monitorar:", ["Mercado Brasileiro (B3)", "Mercado Internacional (EUA)"])
     
     if st.button("Escanear Mercado Agora"):
-        with st.spinner("Atualizando cotações e indicadores fundamentalistas dos 30 ativos selecionados..."):
+        with st.spinner("Atualizando cotações e indicadores das empresas e propriedades globais..."):
             lista_acoes = SCANNER_BR_ACOES if "Brasileiro" in mercado else SCANNER_EUA_ACOES
             lista_fiis = SCANNER_BR_FIIS if "Brasileiro" in mercado else SCANNER_EUA_REITS
             
             df_acoes_analisadas = analisar_saude_ativos(lista_acoes, mercado)
             df_fiis_analisados = analisar_saude_ativos(lista_fiis, mercado)
             
-            tab_acoes, tab_fiis = st.tabs(["📈 Lista Monitorada: Ações (TOP 15)", "🏢 Lista Monitorada: Fundos Imobiliários / REITs (TOP 15)"])
+            # Ajustando o nome da segunda aba dinamicamente com base no mercado
+            nome_aba_fii = "🏢 Lista Monitorada: Fundos Imobiliários (TOP 15)" if "Brasileiro" in mercado else "🏢 Lista Monitorada: REITs Americanos (TOP 15)"
+            
+            tab_acoes, tab_fiis = st.tabs(["📈 Lista Monitorada: Ações (TOP 15)", nome_aba_fii])
             
             with tab_acoes:
                 st.markdown("### Monitoramento de Ações")
                 st.dataframe(df_acoes_analisadas, use_container_width=True)
                 
             with tab_fiis:
-                st.markdown("### Monitoramento de Fundos Imobiliários / REITs")
+                st.markdown(f"### {nome_aba_fii.split(': ')[1]}")
                 st.dataframe(df_fiis_analisados, use_container_width=True)
             
             # --- DESTAQUES DIRETOS DE COMPRA ---
@@ -254,10 +255,10 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
 
 # --- BUSCA GLOBAL ---
 elif menu == "🔍 Busca Global de Qualquer Ativo":
-    st.header("🔍 Mecanismo de Busca Inteligente Global")
+    st.header("🔍 Mechanism de Busca Inteligente Global")
     st.write("Encontre qualquer papel do mundo (Ações, Fundos Imobiliários Brasileiros, REITs Americanos, ETFs).")
     
-    texto_busca = st.text_input("Digite o nome ou sigla do investmento:")
+    texto_busca = st.text_input("Digite o nome ou sigla do investimento:")
     
     if texto_busca:
         resultados = buscar_ticker_global(texto_busca)
