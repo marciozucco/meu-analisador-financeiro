@@ -66,8 +66,11 @@ def buscar_ticker_global(termo_busca):
         return []
 
 # --- FUNÇÃO DE ANÁLISE FUNDAMENTALISTA EM TEMPO REAL ---
-def analisar_saude_ativos(lista_tickers):
+def analisar_saude_ativos(lista_tickers, mercado_selecionado):
     dados_filtrados = []
+    # Define o prefixo da moeda com base no mercado escolhido
+    moeda_prefixo = "R$ " if "B3" in mercado_selecionado else "US$ "
+    
     for ticker in lista_tickers:
         try:
             ticker_limpo = ticker.strip().upper()
@@ -75,19 +78,20 @@ def analisar_saude_ativos(lista_tickers):
             info = t.info
             
             nome = info.get("longName", ticker_limpo)
-            preco = info.get("currentPrice", info.get("regularMarketPrice", 0)) or 0
+            preco_bruto = info.get("currentPrice", info.get("regularMarketPrice", 0)) or 0
+            preco_formatado = f"{moeda_prefixo}{preco_bruto:,.2f}"
             
             tipo = info.get("quoteType", "N/A")
             is_fii = "11.SA" in ticker_limpo or ticker_limpo in SCANNER_EUA_REITS or tipo == "ETF"
             
-            # Captura de Indicadores com tratamento para falhas do Yahoo
+            # Captura de Indicadores
             roe = info.get("returnOnEquity", 0) or 0
             margem = info.get("profitMargins", 0) or 0
             divida = info.get("debtToEquity", 0) or 0
             pe_ratio = info.get("trailingPE", "N/A")
             price_to_book = info.get("priceToBook", "N/A")
             
-            # Tratamento calibrado do Dividend Yield para evitar distorções
+            # Tratamento do Dividend Yield
             raw_dy = info.get("dividendYield", 0)
             if raw_dy is None:
                 raw_dy = 0
@@ -101,7 +105,7 @@ def analisar_saude_ativos(lista_tickers):
             pvp_str = f"{price_to_book:.2f}" if isinstance(price_to_book, (int, float)) else "N/A"
             dy_str = f"{dividend_yield_final:.2f}%"
 
-            # Classificação estrita e direta
+            # Classificação estrita
             if is_fii:
                 if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.09 and dividend_yield_final > 5.0:
                     status_carteira = "🔥 COMPRAR"
@@ -118,157 +122,4 @@ def analisar_saude_ativos(lista_tickers):
                     status_carteira = "❌ EVITAR"
                 
             dados_filtrados.append({
-                "Ticker": ticker_limpo, "Nome": nome, "Classe": "FII / REIT" if is_fii else "Ação", "Preço": preco,
-                "ROE": f"{roe*100:.2f}%" if not is_fii else "N/A", 
-                "Margem Líquida": f"{margem*100:.2f}%" if not is_fii else "N/A", 
-                "Dívida/Patr.": f"{divida:.1f}%" if divida else "0.0%",
-                "P/L": pe_str, "P/VP (Múltiplo)": pvp_str, "Div. Yield (DY)": dy_str,
-                "Decisão da Carteira": status_carteira
-            })
-        except:
-            # Em caso de erro temporário no Yahoo, mantém a linha estruturada para não quebrar a contagem de 15
-            dados_filtrados.append({
-                "Ticker": ticker.upper(), "Nome": "Erro de Conexão Yahoo", "Classe": "FII / REIT" if "11.SA" in ticker else "Ação",
-                "Preço": 0.0, "ROE": "N/A", "Margem Líquida": "N/A", "Dívida/Patr.": "N/A", "P/L": "N/A", "P/VP (Múltiplo)": "N/A",
-                "Div. Yield (DY)": "N/A", "Decisão da Carteira": "⚠️ REAVALIAR"
-            })
-            continue
-            
-    return pd.DataFrame(dados_filtrados)
-
-# --- FUNÇÃO DA IA ---
-def pedir_analise_ia(df_dados, tipo_analise):
-    if not gemini_api_key:
-        return "⚠️ Para receber o relatório da IA, insira sua chave API na barra lateral."
-    try:
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('models/gemini-1.5-flash')
-        dados_texto = df_dados.to_string(index=False) if isinstance(df_dados, pd.DataFrame) else str(df_dados)
-        
-        prompt = f"""
-        Você é um analista financeiro CFP experiente.
-        Abaixo estão os dados analisados e filtrados pelo algoritmo:
-        {dados_texto}
-        
-        Gere um relatório macro em português usando tópicos e negritos indicando:
-        1. Quais ativos da lista estão com a melhor relação risco-retorno na sua visão técnica.
-        2. Um aviso rápido sobre o perigo dos ativos marcados como 'EVITAR'.
-        Seja muito direto, prático e focado em apoiar a decisão do investidor.
-        """
-        resposta = model.generate_content(prompt)
-        return resposta.text
-    except Exception as e:
-        return f"❌ Erro ao conectar com o Gemini: {e}."
-
-# --- INTERFACE DO USUÁRIO ---
-menu = st.sidebar.radio("Navegação", ["🎯 Carteira Recomendada", "🧮 Calculadora de Alocação (Com FIIs)", "🔍 Busca Global de Qualquer Ativo"])
-
-if menu == "🎯 Carteira Recomendada":
-    st.header("🎯 Scanner de Mercado Permanente: Top 15 Ações & Top 15 FIIs")
-    st.write("Abaixo você acompanha a lista fixa dos 15 ativos selecionados por classe. Olhe a coluna **'Decisão da Carteira'** para saber quais comprar.")
-    
-    mercado = st.selectbox("Escolha o Mercado para Monitorar:", ["Mercado Brasileiro (B3)", "Mercado Internacional (EUA)"])
-    
-    if st.button("Escanear Mercado Agora"):
-        with st.spinner("Atualizando cotações e indicadores fundamentalistas dos 30 ativos selecionados..."):
-            lista_acoes = SCANNER_BR_ACOES if "Brasileiro" in mercado else SCANNER_EUA_ACOES
-            lista_fiis = SCANNER_BR_FIIS if "Brasileiro" in mercado else SCANNER_EUA_REITS
-            
-            df_acoes_analisadas = analisar_saude_ativos(lista_acoes)
-            df_fiis_analisados = analisar_saude_ativos(lista_fiis)
-            
-            tab_acoes, tab_fiis = st.tabs(["📈 Lista Monitorada: Ações (TOP 15)", "🏢 Lista Monitorada: Fundos Imobiliários / REITs (TOP 15)"])
-            
-            with tab_acoes:
-                st.markdown("### Monitoramento de Ações")
-                st.dataframe(df_acoes_analisadas, use_container_width=True)
-                
-            with tab_fiis:
-                st.markdown("### Monitoramento de Fundos Imobiliários / REITs")
-                st.dataframe(df_fiis_analisados, use_container_width=True)
-            
-            # --- DESTAQUES DIRETOS DE COMPRA ---
-            st.success("🤖 Resumo Rápido: Ativos com Recomendação de COMPRA Ativa hoje:")
-            df_geral_total = pd.concat([df_acoes_analisadas, df_fiis_analisados])
-            df_so_compras = df_geral_total[df_geral_total["Decisão da Carteira"] == "🔥 COMPRAR"].reset_index(drop=True)
-            
-            if not df_so_compras.empty:
-                st.dataframe(df_so_compras[["Ticker", "Nome", "Classe", "P/VP (Múltiplo)", "Div. Yield (DY)", "Decisão da Carteira"]], use_container_width=True)
-            else:
-                st.info("Nenhum ativo com margem de desconto extremo nesta rodada. Monitore a lista geral.")
-
-            # --- RELATÓRIO DA IA ---
-            st.markdown("---")
-            st.subheader("🧠 Relatório Estratégico do Analista Virtual IA")
-            relatorio = pedir_analise_ia(df_geral_total, "Carteira")
-            st.markdown(relatorio)
-
-# --- CALCULADORA ---
-elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
-    st.header("🧮 Calculadora Patrimonial Inteligente")
-    st.write("Configuração matemática de aportes para o **Perfil Moderado**.")
-    
-    valor_total = st.number_input("Digite o montante total que deseja investir (R$ ou $):", min_value=100.0, value=10000.0, step=500.0)
-    
-    v_rf = valor_total * 0.60
-    v_acoes = valor_total * 0.20
-    v_fiis = valor_total * 0.20
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("🔒 Renda Fixa Segura (60%)", f"{v_rf:,.2f}")
-    m2.metric("📈 Ações Globais (20%)", f"{v_acoes:,.2f}")
-    m3.metric("🏢 FIIs / REITs Globais (20%)", f"{v_fiis:,.2f}")
-    
-    st.markdown("---")
-    st.subheader("🛒 Monte sua Cesta de Renda Variável")
-    
-    col_input1, col_input2 = st.columns(2)
-    compras_acoes = col_input1.text_input("Ações desejadas (Ex: PETR4.SA, AAPL):", value="ITUB4.SA, AAPL")
-    compras_fiis = col_input2.text_input("FIIs/REITs desejados (Ex: MXRF11.SA, O):", value="HGLG11.SA, O")
-    
-    if st.button("Calcular Divisão Exata por Ativo"):
-        lista_final_acoes = [a.strip().upper() for a in compras_acoes.split(",") if a.strip()]
-        lista_final_fiis = [f.strip().upper() for f in compras_fiis.split(",") if f.strip()]
-        
-        tabela_distribuida = []
-        
-        if lista_final_acoes:
-            fatia_acao = v_acoes / len(lista_final_acoes)
-            for ac in lista_final_acoes:
-                tabela_distribuida.append({"Classe": "Renda Variável (Ação)", "Ticker": ac, "Sugestão de Aporte": f"{fatia_acao:,.2f}"})
-                
-        if lista_final_fiis:
-            fatia_fii = v_fiis / len(lista_final_fiis)
-            for fi in lista_final_fiis:
-                tabela_distribuida.append({"Classe": "Renda Variável (FII/REIT)", "Ticker": fi, "Sugestão de Aporte": f"{fatia_fii:,.2f}"})
-                
-        tabela_distribuida.append({"Classe": "Renda Fixa Conservadora", "Ticker": "Tesouro Selic / T-Bills", "Sugestão de Aporte": f"{(v_rf * 0.5):,.2f}"})
-        tabela_distribuida.append({"Classe": "Renda Fixa Anti-Inflação", "Ticker": "Tesouro IPCA+ / TIPS", "Sugestão de Aporte": f"{(v_rf * 0.5):,.2f}"})
-        
-        df_distribuido = pd.DataFrame(tabela_distribuida)
-        st.subheader("📊 Boleta Prática de Compras")
-        st.dataframe(df_distribuido, use_container_width=True)
-
-# --- BUSCA GLOBAL ---
-elif menu == "🔍 Busca Global de Qualquer Ativo":
-    st.header("🔍 Mecanismo de Busca Inteligente Global")
-    st.write("Encontre qualquer papel do mundo (Ações, Fundos Imobiliários Brasileiros, REITs Americanos, ETFs).")
-    
-    texto_busca = st.text_input("Digite o nome ou sigla do investimento:")
-    
-    if texto_busca:
-        resultados = buscar_ticker_global(texto_busca)
-        if resultados:
-            opcoes_labels = [r["label"] for r in resultados]
-            escolha = st.selectbox("Selecione o resultado exato:", opcoes_labels)
-            
-            ticker_alvo = ""
-            for r in resultados:
-                if r["label"] == escolha:
-                    ticker_alvo = r["ticker"]
-            
-            if st.button(f"Analisar Fundamentalista de {ticker_alvo}"):
-                with st.spinner("Acessando balanços consolidados..."):
-                    df_ind = analisar_saude_ativos([ticker_alvo])
-                    if not df_ind.empty:
-                        st.dataframe(df_ind, use_container_width=True)
+                "Ticker": ticker_limpo, "Nome": nome, "Classe": "FII / REIT" if is_
