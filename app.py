@@ -254,7 +254,7 @@ elif menu == "🔍 Busca Global de Qualquer Ativo":
             
             if st.button(f"Analisar Fundamentalista de {ticker_alvo}"):
                 with st.spinner("Acessando balanços consolidados..."):
-                    df_ind = analisar_saude_actifs([ticker_alvo])
+                    df_ind = analisar_saude_ativos([ticker_alvo])
                     if not df_ind.empty:
                         st.dataframe(df_ind, use_container_width=True)
                         st.subheader("🧠 Avaliação da IA")
