@@ -100,9 +100,9 @@ def pedir_analise_ia(df_dados, mercado_nome):
         return "⚠️ Para receber o relatório da IA, insira sua chave API na barra lateral."
     
     try:
-        # ATUALIZADO: Configuração para utilizar o modelo estável mais recente
+        # Força o uso do modelo de produção atualizado
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
         
         dados_texto = df_dados.to_string(index=False)
         
