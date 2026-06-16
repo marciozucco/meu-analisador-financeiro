@@ -102,7 +102,7 @@ def pedir_analise_ia(df_dados, mercado_nome):
     try:
         # Força o uso do modelo de produção atualizado
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('models/gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
         
         dados_texto = df_dados.to_string(index=False)
         
