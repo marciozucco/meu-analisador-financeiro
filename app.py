@@ -203,4 +203,99 @@ if menu == "🎯 Carteira Recomendada":
             # --- DESTAQUES DIRETOS DE COMPRA ---
             st.success("🤖 Resumo de Sinais de COMPRA Identificados na Varredura:")
             df_geral_total = pd.concat([df_acoes_analisadas, df_fiis_analisados])
-            df_so_compras = df_geral_total
+            df_so_compras = df_geral_total[df_geral_total["Decisão da Carteira"] == "🔥 COMPRAR"].reset_index(drop=True)
+            
+            if not df_so_compras.empty:
+                st.dataframe(df_so_compras[["Ticker", "Nome", "Classe", "Preço", "P/VP (Múltiplo)", "Div. Yield (DY)", "Decisão da Carteira"]], use_container_width=True)
+            else:
+                st.info("Nenhum ativo operando com desconto extremo ou assimetria forte nesta rodada.")
+
+            # --- RELATÓRIO DA IA ---
+            st.markdown("---")
+            st.subheader("🧠 Relatório Estratégico do Analista Virtual IA")
+            relatorio = pedir_analise_ia(df_geral_total, "Carteira")
+            st.markdown(relatorio)
+
+# --- CALCULADORA ---
+elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
+    st.header("🧮 Calculadora Patrimonial Inteligente")
+    st.write("Configuração matemática de aportes para o **Perfil Moderado**.")
+    
+    valor_total = st.number_input("Digite o montante total que deseja investir:", min_value=100.0, value=10000.0, step=500.0)
+    
+    v_rf = valor_total * 0.60
+    v_acoes = valor_total * 0.20
+    v_fiis = valor_total * 0.20
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🔒 Renda Fixa Segura (60%)", f"{v_rf:,.2f}")
+    m2.metric("📈 Ações Globais (20%)", f"{v_acoes:,.2f}")
+    m3.metric("🏢 FIIs / REITs Globais (20%)", f"{v_fiis:,.2f}")
+    
+    st.markdown("---")
+    st.subheader("🛒 Monte sua Cesta de Renda Variável")
+    
+    col_input1, col_input2 = st.columns(2)
+    compras_acoes = col_input1.text_input("Ações desejadas (Ex: PETR4.SA, AAPL):", value="ITUB4.SA, AAPL")
+    compras_fiis = col_input2.text_input("FIIs/REITs desejados (Ex: MXRF11.SA, O):", value="HGLG11.SA, O")
+    
+    if st.button("Calcular Divisão Exata por Ativo"):
+        lista_final_acoes = [a.strip().upper() for a in compras_acoes.split(",") if a.strip()]
+        lista_final_fiis = [f.strip().upper() for f in compras_fiis.split(",") if f.strip()]
+        
+        tabela_distribuida = []
+        
+        if lista_final_acoes:
+            fatia_acao = v_acoes / len(lista_final_acoes)
+            for ac in lista_final_acoes:
+                tabela_distribuida.append({"Classe": "Renda Variável (Ação)", "Ticker": ac, "Sugestão de Aporte": f"{fatia_acao:,.2f}"})
+                
+        if lista_final_fiis:
+            fatia_fii = v_fiis / len(lista_final_fiis)
+            for fi in lista_final_fiis:
+                tabela_distribuida.append({"Classe": "Renda Variável (FII/REIT)", "Ticker": fi, "Sugestão de Aporte": f"{fatia_fii:,.2f}"})
+                
+        tabela_distribuida.append({"Classe": "Renda Fixa Conservadora", "Ticker": "Tesouro Selic / T-Bills", "Sugestão de Aporte": f"{(v_rf * 0.5):,.2f}"})
+        tabela_distribuida.append({"Classe": "Renda Fixa Anti-Inflação", "Ticker": "Tesouro IPCA+ / TIPS", "Sugestão de Aporte": f"{(v_rf * 0.5):,.2f}"})
+        
+        df_distribuido = pd.DataFrame(tabela_distribuida)
+        st.subheader("📊 Boleta Prática de Compras")
+        st.dataframe(df_distribuido, use_container_width=True)
+
+# --- BUSCA GLOBAL COM AUTOCOMPLETE INTEGRADO ---
+elif menu == "🔍 Busca Global de Qualquer Ativo":
+    st.header("🔍 Mecanismo de Busca Inteligente Global")
+    st.write("Comece a digitar o nome da empresa ou o ticker para obter sugestões automáticas das principais bolsas.")
+    
+    # Caixa dinâmica de entrada de texto para ativação do Autocomplete
+    busca_usuario = st.text_input("Digite para pesquisar (Ex: Apple, Itaú, Microsoft, Petrobras):", value="")
+    
+    if busca_usuario:
+        sugestoes = buscar_ticker_global(busca_usuario)
+        
+        if sugestoes:
+            lista_labels = [item["label"] for item in sugestoes]
+            # Cria a caixa de seleção com preenchimento automático em tempo real
+            selecao = st.selectbox("Resultados encontrados (Selecione um):", lista_labels)
+            
+            ticker_alvo = ""
+            for item in sugestoes:
+                if item["label"] == selecao:
+                    ticker_alvo = item["ticker"]
+            
+            if st.button(f"Analisar Fundamentalista de {ticker_alvo}"):
+                with st.spinner(f"Baixando balanços consolidados de {ticker_alvo}..."):
+                    # Executa a análise sem o ponto cego estrutural
+                    df_ind = analisar_saude_ativos([ticker_alvo])
+                    
+                    if not df_ind.empty and df_ind.iloc[0]["Nome"] != "Ativo Global Cadastrado":
+                        st.markdown("### 📊 Indicadores Fundamentalistas Coletados")
+                        st.dataframe(df_ind, use_container_width=True)
+                        
+                        st.subheader("🧠 Avaliação da Inteligência Artificial")
+                        with st.spinner("Gerando laudo consultivo..."):
+                            st.markdown(pedir_analise_ia(df_ind, ticker_alvo))
+                    else:
+                        st.error("Este ativo não possui dados fundamentalistas públicos suficientes no Yahoo Finance para gerar um diagnóstico completo.")
+        else:
+            st.warning("Nenhum ativo listado em bolsa encontrado com esse nome.")
