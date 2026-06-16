@@ -18,7 +18,7 @@ st.sidebar.markdown("---")
 # --- LISTAS EXPANDIDAS PARA EXATAMENTE 15 ATIVOS POR CATEGORIA ---
 SCANNER_BR_ACOES = [
     "VALE3.SA", "PETR4.SA", "ITUB4.SA", "WEGE3.SA", "BBAS3.SA",
-    "BBDC4.SA", "ABEV3.SA", "ELET3.SA", "RENT3.SA", "ITSAs4.SA",
+    "BBDC4.SA", "ABEV3.SA", "ELET3.SA", "RENT3.SA", "ITSA4.SA",
     "GGBR4.SA", "LREN3.SA", "EQTL3.SA", "RADL3.SA", "VBBR3.SA"
 ]
 SCANNER_BR_FIIS = [
@@ -70,35 +70,44 @@ def analisar_saude_ativos(lista_tickers):
     dados_filtrados = []
     for ticker in lista_tickers:
         try:
-            t = yf.Ticker(ticker)
+            ticker_limpo = ticker.strip().upper()
+            t = yf.Ticker(ticker_limpo)
             info = t.info
             
-            nome = info.get("longName", ticker)
+            if not info or (info.get("regularMarketPrice") is None and info.get("currentPrice") is None):
+                continue
+                
+            nome = info.get("longName", ticker_limpo)
             preco = info.get("currentPrice", info.get("regularMarketPrice", 0)) or 0
             
             tipo = info.get("quoteType", "N/A")
-            # Identificação inteligente de classe
-            is_fii = "11.SA" in ticker or ticker in SCANNER_EUA_REITS or tipo == "ETF"
+            is_fii = "11.SA" in ticker_limpo or ticker_limpo in SCANNER_EUA_REITS or tipo == "ETF"
             
-            # Coleta de indicadores
             roe = info.get("returnOnEquity", 0) or 0
             margem = info.get("profitMargins", 0) or 0
             divida = info.get("debtToEquity", 0) or 0
             pe_ratio = info.get("trailingPE", "N/A")
             price_to_book = info.get("priceToBook", "N/A")
-            dividend_yield = info.get("dividendYield", 0) or 0
             
+            # Tratamento do Dividend Yield para evitar distorções
+            raw_dy = info.get("dividendYield", 0)
+            if raw_dy is None:
+                raw_dy = 0
+                
+            if raw_dy > 1:
+                dividend_yield_final = raw_dy
+            else:
+                dividend_yield_final = raw_dy * 100
+                
             pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "N/A"
             pvp_str = f"{price_to_book:.2f}" if isinstance(price_to_book, (int, float)) else "N/A"
-            
-            # CORREÇÃO DO SEU DIVIDEND YIELD: Formatação segura sem multiplicar duas vezes
-            dy_str = f"{dividend_yield * 100:.2f}%" if dividend_yield else "0.00%"
+            dy_str = f"{dividend_yield_final:.2f}%"
 
-            # Filtros de Seleção (Diferenciando Ações de FIIs)
+            # Definição das sugestões de saúde do ativo
             if is_fii:
-                if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.08 and dividend_yield > 0.05:
+                if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.08 and dividend_yield_final > 5.0:
                     saude, sugestao = "Excelente ❤️ (Preço Justo)", "Forte Compra"
-                elif dividend_yield > 0.04:
+                elif dividend_yield_final > 4.0:
                     saude, sugestao = "Regular 🟡", "Manter / Observar"
                 else:
                     saude, sugestao = "Fraca ⚠️", "Evitar no Momento"
@@ -111,7 +120,7 @@ def analisar_saude_ativos(lista_tickers):
                     saude, sugestao = "Fraca ⚠️", "Evitar / Risco"
                 
             dados_filtrados.append({
-                "Ticker": ticker, "Nome": nome, "Classe": "FII / REIT" if is_fii else "Ação", "Preço": preco,
+                "Ticker": ticker_limpo, "Nome": nome, "Classe": "FII / REIT" if is_fii else "Ação", "Preço": preco,
                 "ROE": f"{roe*100:.2f}%" if not is_fii else "N/A", 
                 "Margem Líquida": f"{margem*100:.2f}%" if not is_fii else "N/A", 
                 "Dívida/Patr.": f"{divida:.1f}%" if divida else "0.0%",
