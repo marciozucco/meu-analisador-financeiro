@@ -13,7 +13,7 @@ st.sidebar.header("🤖 Configuração da Inteligência Artificial")
 gemini_api_key = st.sidebar.text_input("Digite sua Gemini API Key:", type="password")
 
 st.sidebar.markdown("[Como conseguir uma chave grátis?](https://aistudio.google.com/)")
-st.sidebar.hr()
+st.sidebar.markdown("---")
 
 # Listas padrão de monitoramento
 ACOES_BR = ["VALE3.SA", "PETR4.SA", "ITUB4.SA", "WEGE3.SA", "ABEV3.SA"]
