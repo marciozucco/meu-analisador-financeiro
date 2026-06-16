@@ -15,12 +15,28 @@ gemini_api_key = st.sidebar.text_input("Digite sua Gemini API Key:", type="passw
 st.sidebar.markdown("[Obter chave grátis](https://aistudio.google.com/)")
 st.sidebar.markdown("---")
 
-# --- LISTAS EXPANDIDAS PARA A CARTEIRA RECOMENDADA AUTOMÁTICA ---
-# Separados por classe para o robô escanear e organizar perfeitamente
-SCANNER_BR_ACOES = ["VALE3.SA", "PETR4.SA", "ITUB4.SA", "WEGE3.SA", "BBAS3.SA"]
-SCANNER_BR_FIIS = ["HGLG11.SA", "XPLG11.SA", "KNCR11.SA", "MXRF11.SA", "BTLG11.SA"]
-SCANNER_EUA_ACOES = ["AAPL", "MSFT", "GOOGL", "NVDA", "KO"]
-SCANNER_EUA_REITS = ["O", "STAG", "PLD", "AMT", "SPG"] # Principais fundos imobiliários americanos
+# --- LISTAS EXPANDIDAS PARA EXATAMENTE 15 ATIVOS POR CATEGORIA ---
+SCANNER_BR_ACOES = [
+    "VALE3.SA", "PETR4.SA", "ITUB4.SA", "WEGE3.SA", "BBAS3.SA",
+    "BBDC4.SA", "ABEV3.SA", "ELET3.SA", "RENT3.SA", "ITSAs4.SA",
+    "GGBR4.SA", "LREN3.SA", "EQTL3.SA", "RADL3.SA", "VBBR3.SA"
+]
+SCANNER_BR_FIIS = [
+    "HGLG11.SA", "XPLG11.SA", "KNCR11.SA", "MXRF11.SA", "BTLG11.SA",
+    "XPML11.SA", "VISC11.SA", "KNRI11.SA", "HGRU11.SA", "HGBS11.SA",
+    "RECR11.SA", "VILG11.SA", "CPTS11.SA", "TRXF11.SA", "TGAR11.SA"
+]
+
+SCANNER_EUA_ACOES = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META",
+    "NVDA", "TSLA", "KO", "PEP", "DIS",
+    "JNJ", "V", "WMT", "XOM", "JPM"
+]
+SCANNER_EUA_REITS = [
+    "O", "STAG", "PLD", "AMT", "SPG",
+    "CCI", "EQIX", "PSA", "DLR", "SBAC",
+    "WELL", "AVB", "VRE", "WY", "NLY"
+]
 
 # --- FUNÇÃO DE BUSCA GLOBAL ---
 def buscar_ticker_global(termo_busca):
@@ -60,9 +76,8 @@ def analisar_saude_ativos(lista_tickers):
             nome = info.get("longName", ticker)
             preco = info.get("currentPrice", info.get("regularMarketPrice", 0)) or 0
             
-            # Identificação inteligente do tipo de ativo
             tipo = info.get("quoteType", "N/A")
-            # É considerado FII se termina com 11.SA ou se for um REIT americano conhecido na nossa lista
+            # Identificação inteligente de classe
             is_fii = "11.SA" in ticker or ticker in SCANNER_EUA_REITS or tipo == "ETF"
             
             # Coleta de indicadores
@@ -70,16 +85,17 @@ def analisar_saude_ativos(lista_tickers):
             margem = info.get("profitMargins", 0) or 0
             divida = info.get("debtToEquity", 0) or 0
             pe_ratio = info.get("trailingPE", "N/A")
-            price_to_book = info.get("priceToBook", "N/A")  # P/VP
+            price_to_book = info.get("priceToBook", "N/A")
             dividend_yield = info.get("dividendYield", 0) or 0
             
             pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "N/A"
             pvp_str = f"{price_to_book:.2f}" if isinstance(price_to_book, (int, float)) else "N/A"
+            
+            # CORREÇÃO DO SEU DIVIDEND YIELD: Formatação segura sem multiplicar duas vezes
             dy_str = f"{dividend_yield * 100:.2f}%" if dividend_yield else "0.00%"
 
             # Filtros de Seleção (Diferenciando Ações de FIIs)
             if is_fii:
-                # Para FIIs/REITs: Foco em dividendos e P/VP próximo de 1
                 if isinstance(price_to_book, (int, float)) and 0.85 <= price_to_book <= 1.08 and dividend_yield > 0.05:
                     saude, sugestao = "Excelente ❤️ (Preço Justo)", "Forte Compra"
                 elif dividend_yield > 0.04:
@@ -87,7 +103,6 @@ def analisar_saude_ativos(lista_tickers):
                 else:
                     saude, sugestao = "Fraca ⚠️", "Evitar no Momento"
             else:
-                # Para Ações: Foco em eficiência de lucros e endividamento baixo
                 if roe > 0.12 and margem > 0.10 and divida < 130:
                     saude, sugestao = "Excelente ❤️", "Forte Compra"
                 elif roe > 0.05 and margem > 0.05:
@@ -122,69 +137,61 @@ def pedir_analise_ia(df_dados, tipo_analise):
         {dados_texto}
         
         Forneça um laudo em português usando tópicos e negritos:
-        1. Avalie a distribuição proposta (Renda Fixa, Ações e Fundos Imobiliários) sob a ótica de um investidor Moderado que deseja renda e crescimento equilibrados.
-        2. Justifique quais Ações ou FIIs listados estão mais atraentes usando os dados de Dividend Yield (DY) e P/VP fornecidos.
-        Seja muito prático e direto.
+        1. Avalie a lista de ativos escaneada e destaque as melhores oportunidades agregadas.
+        2. Justifique os destaques usando os dados de Dividend Yield (DY) e P/VP fornecidos de forma realista.
+        Seja analítico, prático e direto.
         """
         resposta = model.generate_content(prompt)
         return resposta.text
     except Exception as e:
         return f"❌ Erro ao conectar com o Gemini: {e}."
 
-# --- INTERFACE DO USUÁRIO ---
+# --- INTERFACE ---
 menu = st.sidebar.radio("Navegação", ["🎯 Carteira Recomendada", "🧮 Calculadora de Alocação (Com FIIs)", "🔍 Busca Global de Qualquer Ativo"])
 
-# 1. ABA: CARTEIRA RECOMENDADA
 if menu == "🎯 Carteira Recomendada":
     st.header("🎯 Scanner de Mercado: Carteiras de Ações & FIIs")
-    st.write("Análise em tempo real de grandes ativos divididos por classes de investimento.")
+    st.write("Análise em tempo real de grandes ativos divididos por classes de investimento (Mantendo o TOP 15 sempre atualizado).")
     
     mercado = st.selectbox("Escolha o Mercado para Monitorar:", ["Mercado Brasileiro (B3)", "Mercado Internacional (EUA)"])
     
     if st.button("Escanear Mercado Agora"):
-        with st.spinner("Varrendo cotações, dividendos e balanços..."):
-            # Define as listas com base no mercado escolhido
+        with st.spinner("Varrendo cotações, dividendos e balanços dos 30 ativos selecionados..."):
             lista_acoes = SCANNER_BR_ACOES if "Brasileiro" in mercado else SCANNER_EUA_ACOES
             lista_fiis = SCANNER_BR_FIIS if "Brasileiro" in mercado else SCANNER_EUA_REITS
             
-            # Junta tudo para passar pelo scanner
             df_geral = analisar_saude_ativos(lista_acoes + lista_fiis)
             
             if not df_geral.empty:
-                # Divide a visualização na tela em duas abas organizadas
-                tab_acoes, tab_fiis = st.tabs(["📈 Ações Recomendadas", "🏢 Fundos Imobiliários / REITs"])
+                tab_acoes, tab_fiis = st.tabs(["📈 Ações Recomendadas (TOP 15)", "🏢 Fundos Imobiliários / REITs (TOP 15)"])
                 
                 with tab_acoes:
-                    df_s_acoes = df_geral[df_geral["Classe"] == "Ação"]
+                    df_s_acoes = df_geral[df_geral["Classe"] == "Ação"].reset_index(drop=True)
                     st.dataframe(df_s_acoes, use_container_width=True)
                     
                 with tab_fiis:
-                    df_s_fiis = df_geral[df_geral["Classe"] == "FII / REIT"]
+                    df_s_fiis = df_geral[df_geral["Classe"] == "FII / REIT"].reset_index(drop=True)
                     st.dataframe(df_s_fiis, use_container_width=True)
                 
-                # Destaca apenas as melhores oportunidades
                 st.success("🤖 Destaques do Robô (Ativos classificados como 'Forte Compra'):")
-                df_fortes = df_geral[df_geral["Sugestão"] == "Forte Compra"]
+                df_fortes = df_geral[df_geral["Sugestão"] == "Forte Compra"].reset_index(drop=True)
                 if not df_fortes.empty:
                     st.dataframe(df_fortes[["Ticker", "Nome", "Classe", "P/VP (Múltiplo)", "Div. Yield (DY)", "Sugestão"]], use_container_width=True)
                 else:
-                    st.info("Nenhum ativo com desconto extremo hoje. Siga a tabela geral.")
+                    st.info("Nenhum ativo com desconto extremo hoje. Siga a tabela geral das abas.")
                 
-                # Laudo do Gemini
                 st.subheader("🧠 Relatório Estratégico da Inteligência Artificial")
                 relatorio = pedir_analise_ia(df_geral, "Carteira")
                 st.markdown(relatorio)
             else:
                 st.error("Erro ao puxar os dados do Yahoo Finance.")
 
-# 2. ABA: CALCULADORA DE ALOCAÇÃO (TOTALMENTE INTEGRADA)
 elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
     st.header("🧮 Calculadora Patrimonial Inteligente")
-    st.write("Configuração matemática de aportes para o **Perfil Moderado** dividida estrategicamente entre segurança, dividendos e crescimento.")
+    st.write("Configuração matemática de aportes para o **Perfil Moderado**.")
     
     valor_total = st.number_input("Digite o montante total que deseja investir (R$ ou $):", min_value=100.0, value=10000.0, step=500.0)
     
-    # Modelo Matemático de Alocação Moderada Definitiva: 60% Fixa / 20% Ações / 20% FIIs
     v_rf = valor_total * 0.60
     v_acoes = valor_total * 0.20
     v_fiis = valor_total * 0.20
@@ -196,7 +203,6 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
     
     st.markdown("---")
     st.subheader("🛒 Monte sua Cesta de Renda Variável")
-    st.write("Insira os códigos dos ativos que deseja comprar com a sua verba de Renda Variável (separe por vírgula):")
     
     col_input1, col_input2 = st.columns(2)
     compras_acoes = col_input1.text_input("Ações desejadas (Ex: PETR4.SA, AAPL):", value="ITUB4.SA, AAPL")
@@ -208,19 +214,16 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
         
         tabela_distribuida = []
         
-        # Divisão da verba de ações igualmente entre as digitadas
         if lista_final_acoes:
             fatia_acao = v_acoes / len(lista_final_acoes)
             for ac in lista_final_acoes:
                 tabela_distribuida.append({"Classe": "Renda Variável (Ação)", "Ticker": ac, "Sugestão de Aporte": f"{fatia_acao:,.2f}"})
                 
-        # Divisão da verba de FIIs igualmente entre os digitados
         if lista_final_fiis:
             fatia_fii = v_fiis / len(lista_final_fiis)
             for fi in lista_final_fiis:
                 tabela_distribuida.append({"Classe": "Renda Variável (FII/REIT)", "Ticker": fi, "Sugestão de Aporte": f"{fatia_fii:,.2f}"})
                 
-        # Inclusão automática dos 60% da Renda Fixa para fechar a conta do patrimônio
         tabela_distribuida.append({"Classe": "Renda Fixa Conservadora", "Ticker": "Tesouro Selic / T-Bills", "Sugestão de Aporte": f"{(v_rf * 0.5):,.2f}"})
         tabela_distribuida.append({"Classe": "Renda Fixa Anti-Inflação", "Ticker": "Tesouro IPCA+ / TIPS", "Sugestão de Aporte": f"{(v_rf * 0.5):,.2f}"})
         
@@ -228,24 +231,22 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
         st.subheader("📊 Boleta Prática de Compras")
         st.dataframe(df_distribuido, use_container_width=True)
         
-        # Auditoria da IA sobre as escolhas do usuário
         st.subheader("🤖 Análise Consultiva da IA sobre a Alocação")
         with st.spinner("Consultando analista virtual..."):
             relatorio_ia = pedir_analise_ia(df_distribuido, "Plano de Alocação Customizado")
             st.markdown(relatorio_ia)
 
-# 3. ABA: BUSCA GLOBAL COMPLETA
 elif menu == "🔍 Busca Global de Qualquer Ativo":
     st.header("🔍 Mecanismo de Busca Inteligente Global")
     st.write("Encontre qualquer papel do mundo (Ações, Fundos Imobiliários Brasileiros, REITs Americanos, ETFs).")
     
-    texto_busca = st.text_input("Digite o nome ou sigla do investimento (Ex: Taesa, MXRF11, Realty Income, Microsoft):")
+    texto_busca = st.text_input("Digite o nome ou sigla do investimento:")
     
     if texto_busca:
         resultados = buscar_ticker_global(texto_busca)
         if resultados:
             opcoes_labels = [r["label"] for r in resultados]
-            escolha = st.selectbox("Selecione o resultado exato:", "%" if len(opcoes_labels)==0 else opcoes_labels)
+            escolha = st.selectbox("Selecione o resultado exato:", opcoes_labels)
             
             ticker_alvo = ""
             for r in resultados:
