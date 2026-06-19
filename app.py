@@ -9,35 +9,10 @@ st.set_page_config(page_title="Plataforma de Investimentos Global Pro", layout="
 st.title("💼 Simulador de Investimentos Global & IA")
 st.subheader("Análise Fundamentalista, Alocação Moderada com FIIs e Busca Global")
 
-# --- INICIALIZAÇÃO DO HISTÓRICO EM MEMÓRIA ---
-if "historico_busca" not in st.session_state:
-    st.session_state.historico_busca = []
-
 # --- CONFIGURAÇÃO DA IA ---
 st.sidebar.header("🤖 Inteligência Artificial")
 gemini_api_key = st.sidebar.text_input("Digite sua Gemini API Key:", type="password")
 st.sidebar.markdown("[Obter chave grátis](https://aistudio.google.com/)")
-st.sidebar.markdown("---")
-
-# --- SEÇÃO DO HISTÓRICO NA BARRA LATERAL ---
-st.sidebar.header("⏳ Histórico de Pesquisas")
-if st.session_state.historico_busca:
-    with st.sidebar.expander("Ver ativos recentes", expanded=True):
-        for t_historico in st.session_state.historico_busca:
-            # Botão interativo: ao clicar, define o ativo como a pesquisa atual
-            if st.button(f"🔍 {t_historico}", key=f"hist_{t_historico}"):
-                st.session_state.ticker_selecionado_historico = t_historico
-                st.rerun()
-        
-        st.markdown("---")
-        if st.button("🗑️ Limpar Histórico"):
-            st.session_state.historico_busca = []
-            if "ticker_selecionado_historico" in st.session_state:
-                del st.session_state.ticker_selecionado_historico
-            st.rerun()
-else:
-    st.sidebar.info("Nenhum ativo pesquisado nesta sessão.")
-
 st.sidebar.markdown("---")
 
 # --- LISTAS FIXAS DE MONITORAMENTO ---
@@ -69,7 +44,7 @@ def buscar_ticker_global(termo_busca):
         return []
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={termo_busca}&quotesCount=8&newsCount=0"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         resposta = requests.get(url, headers=headers, timeout=5).json()
         
         opcoes = []
@@ -95,18 +70,27 @@ def buscar_ticker_global(termo_busca):
 def analisar_saude_ativos(lista_tickers):
     dados_filtrados = []
     
+    # Criando uma sessão HTTP com User-Agent para evitar blocos do Yahoo Finance
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+    })
+    
     for ticker in lista_tickers:
         try:
             ticker_limpo = ticker.strip().upper()
-            t = yf.Ticker(ticker_limpo)
+            t = yf.Ticker(ticker_limpo, session=session)
             info = t.info
             
-            nome = info.get("longName", ticker_limpo)
+            if not info or len(info) <= 1:
+                raise ValueError("Yahoo retornou dados vazios para este ticker")
+            
+            nome = info.get("longName", info.get("shortName", ticker_limpo))
             preco_bruto = info.get("currentPrice", info.get("regularMarketPrice", 0)) or 0
             moeda = info.get("financialCurrency", info.get("currency", "USD"))
             
             moeda_prefixo = "R$ " if moeda == "BRL" else f"{moeda} "
-            preco_formatado = f"{moeda_prefixo}{preco_bruto:,.2f}"
+            preco_formatado = f"{moeda_prefixo}{preco_bruto:,.2f}" if preco_bruto else "N/A"
             
             tipo = info.get("quoteType", "N/A")
             setor = str(info.get("sector", "")).lower()
@@ -157,10 +141,13 @@ def analisar_saude_ativos(lista_tickers):
                 "P/L": pe_str, "P/VP (Múltiplo)": pvp_str, "Div. Yield (DY)": dy_str,
                 "Decisão da Carteira": status_carteira
             })
-        except:
+        except Exception as e:
+            # Printa o erro real no terminal do Streamlit para você monitorar por que falhou
+            print(f"Erro ao analisar ticker {ticker}: {e}")
+            
             is_fii_fallback = "11.SA" in ticker.upper() or ticker.upper() in SCANNER_EUA_REITS
             dados_filtrados.append({
-                "Ticker": ticker.upper(), "Nome": "Ativo Global Cadastrado", "Classe": "FII / REIT" if is_fii_fallback else "Ação",
+                "Ticker": ticker.upper(), "Nome": "Erro de Conexão Yahoo", "Classe": "FII / REIT" if is_fii_fallback else "Ação",
                 "Preço": "N/A", "ROE": "N/A", "Margem Líquida": "N/A", "Dívida/Patr.": "N/A", "P/L": "N/A", "P/VP (Múltiplo)": "N/A",
                 "Div. Yield (DY)": "N/A", "Decisão da Carteira": "⚠️ REAVALIAR"
             })
@@ -233,19 +220,21 @@ if menu == "🎯 Carteira Recomendada":
             relatorio = pedir_analise_ia(df_geral_total, "Carteira")
             st.markdown(relatorio)
 
-# --- CALCULADORA ---
+# --- CALCULADORA PRIORIZANDO O MERCADO NACIONAL ---
 elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
     st.header("🧮 Calculadora Patrimonial Inteligente")
     st.write("Configuração matemática de aportes calibrada para o **Perfil Moderado com Foco no Mercado Nacional**.")
     
     valor_total = st.number_input("Digite o montante total que deseja investir:", min_value=100.0, value=10000.0, step=500.0)
     
+    # 60% Renda Fixa / 40% Renda Variável calibrada (30% Brasil / 10% Internacional)
     v_rf = valor_total * 0.60
-    v_acoes_br = valor_total * 0.15      
-    v_fiis = valor_total * 0.15          
-    v_acoes_global = valor_total * 0.05  
-    v_reits = valor_total * 0.05         
+    v_acoes_br = valor_total * 0.15      # 15% focado no Brasil
+    v_fiis = valor_total * 0.15          # 15% focado no Brasil
+    v_acoes_global = valor_total * 0.05  # 5% Internacional
+    v_reits = valor_total * 0.05         # 5% Internacional
     
+    # Exibição visual das métricas em 5 colunas estruturadas
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("🔒 Renda Fixa (60%)", f"{v_rf:,.2f}")
     c2.metric("🇧🇷 Ações BR (15%)", f"{v_acoes_br:,.2f}")
@@ -297,24 +286,17 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
         st.subheader("📊 Boleta Prática de Compras")
         st.dataframe(df_distribuido, use_container_width=True)
 
-# --- BUSCA GLOBAL COM RECURSO DE HISTÓRICO ---
+# --- BUSCA GLOBAL ---
 elif menu == "🔍 Busca Global de Qualquer Ativo":
     st.header("🔍 Mecanismo de Busca Inteligente Global")
     st.write("Comece a digitar o nome da empresa ou o ticker para obter sugestões automáticas das principais bolsas.")
     
-    # Se o usuário clicou no histórico, preenchemos o termo de busca automaticamente com o ticker
-    termo_inicial = ""
-    if "ticker_selecionado_historico" in st.session_state:
-        termo_inicial = st.session_state.ticker_selecionado_historico
-        # Limpa o gatilho para permitir novas pesquisas normais depois
-        del st.session_state.ticker_selecionado_historico
-        
-    busca_usuario = st.text_input("Digite para pesquisar (Ex: Apple, Itaú, Microsoft, Petrobras):", value=termo_inicial)
+    busca_usuario = st.text_input("Digite para pesquisar (Ex: Apple, Itaú, Microsoft, Petrobras):", value="")
     
     if busca_usuario:
         sugestoes = buscar_ticker_global(busca_usuario)
         
-        if congestoes := sugestoes:
+        if sugestoes:
             lista_labels = [item["label"] for item in sugestoes]
             selecao = st.selectbox("Resultados encontrados (Selecione um):", lista_labels)
             
@@ -327,12 +309,7 @@ elif menu == "🔍 Busca Global de Qualquer Ativo":
                 with st.spinner(f"Baixando balanços consolidados de {ticker_alvo}..."):
                     df_ind = analisar_saude_ativos([ticker_alvo])
                     
-                    if not df_ind.empty and df_ind.iloc[0]["Nome"] != "Ativo Global Cadastrado":
-                        # SALVA NO HISTÓRICO: Evita duplicados e mantém os mais novos no topo
-                        if ticker_alvo in st.session_state.historico_busca:
-                            st.session_state.historico_busca.remove(ticker_alvo)
-                        st.session_state.historico_busca.insert(0, ticker_alvo)
-                        
+                    if not df_ind.empty and df_ind.iloc[0]["Nome"] != "Erro de Conexão Yahoo":
                         st.markdown("### 📊 Indicadores Fundamentalistas Coletados")
                         st.dataframe(df_ind, use_container_width=True)
                         
@@ -340,6 +317,6 @@ elif menu == "🔍 Busca Global de Qualquer Ativo":
                         with st.spinner("Gerando laudo consultivo..."):
                             st.markdown(pedir_analise_ia(df_ind, ticker_alvo))
                     else:
-                        st.error("Este ativo não possui dados suficientes para um diagnóstico automático.")
+                        st.error("Este ativo não possui dados fundamentalistas suficientes para um diagnóstico automático.")
         else:
             st.warning("Nenhum ativo encontrado.")
