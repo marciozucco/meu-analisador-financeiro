@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import google.generativeai as genai
 import requests
+import time
 
 st.set_page_config(page_title="Plataforma de Investimentos Global Pro", layout="wide")
 
@@ -44,7 +45,7 @@ def buscar_ticker_global(termo_busca):
         return []
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={termo_busca}&quotesCount=8&newsCount=0"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         resposta = requests.get(url, headers=headers, timeout=5).json()
         
         opcoes = []
@@ -70,25 +71,43 @@ def buscar_ticker_global(termo_busca):
 def analisar_saude_ativos(lista_tickers):
     dados_filtrados = []
     
-    # Criando uma sessão HTTP com User-Agent para evitar blocos do Yahoo Finance
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     })
     
     for ticker in lista_tickers:
+        # Delay anti-bloqueio (essencial para servidores em nuvem)
+        time.sleep(0.4)
         try:
             ticker_limpo = ticker.strip().upper()
             t = yf.Ticker(ticker_limpo, session=session)
-            info = t.info
             
+            # Tenta obter dados através do info tradicional
+            info = t.info
             if not info or len(info) <= 1:
-                raise ValueError("Yahoo retornou dados vazios para este ticker")
+                # Fallback usando fast_info caso o dicionário principal venha bloqueado
+                info = {}
+                try:
+                    info["currentPrice"] = t.fast_info.get("lastPrice")
+                    info["currency"] = t.fast_info.get("currency")
+                except:
+                    pass
             
             nome = info.get("longName", info.get("shortName", ticker_limpo))
-            preco_bruto = info.get("currentPrice", info.get("regularMarketPrice", 0)) or 0
-            moeda = info.get("financialCurrency", info.get("currency", "USD"))
             
+            # Captura de Preço Segura
+            preco_bruto = info.get("currentPrice", info.get("regularMarketPrice", 0))
+            if not preco_bruto or preco_bruto == 0:
+                try:
+                    # Última tentativa de obter preço via histórico recente de 1 dia
+                    hist = t.history(period="1d")
+                    if not hist.empty:
+                        preco_bruto = hist['Close'].iloc[-1]
+                except:
+                    preco_bruto = 0
+                    
+            moeda = info.get("financialCurrency", info.get("currency", "BRL" if ".SA" in ticker_limpo else "USD"))
             moeda_prefixo = "R$ " if moeda == "BRL" else f"{moeda} "
             preco_formatado = f"{moeda_prefixo}{preco_bruto:,.2f}" if preco_bruto else "N/A"
             
@@ -116,38 +135,37 @@ def analisar_saude_ativos(lista_tickers):
                 
             pe_str = f"{pe_ratio:.2f}" if isinstance(pe_ratio, (int, float)) else "N/A"
             pvp_str = f"{price_to_book:.2f}" if isinstance(price_to_book, (int, float)) else "N/A"
-            dy_str = f"{dividend_yield_final:.2f}%"
+            dy_str = f"{dividend_yield_final:.2f}%" if dividend_yield_final > 0 else "N/A"
 
+            # Regras de Decisão
             if is_fii:
                 if isinstance(price_to_book, (int, float)) and 0.80 <= price_to_book <= 1.25 and dividend_yield_final > 4.5:
                     status_carteira = "🔥 COMPRAR"
-                elif dividend_yield_final > 3.5:
+                elif dividend_yield_final > 1.0:
                     status_carteira = "⚠️ QUARENTENA"
                 else:
                     status_carteira = "❌ EVITAR"
             else:
-                if roe > 0.11 and margem > 0.09 and (divida < 140 or divida == 0):
+                if roe > 0.08 and margem > 0.05:
                     status_carteira = "🔥 COMPRAR"
-                elif roe > 0.04 and margem > 0.04:
+                elif roe > 0.01:
                     status_carteira = "⚠️ QUARENTENA"
                 else:
                     status_carteira = "❌ EVITAR"
                 
             dados_filtrados.append({
                 "Ticker": ticker_limpo, "Nome": nome, "Classe": "FII / REIT" if is_fii else "Ação", "Preço": preco_formatado,
-                "ROE": f"{roe*100:.2f}%" if not is_fii else "N/A", 
-                "Margem Líquida": f"{margem*100:.2f}%" if not is_fii else "N/A", 
+                "ROE": f"{roe*100:.2f}%" if not is_fii and roe else "N/A", 
+                "Margem Líquida": f"{margem*100:.2f}%" if not is_fii and margem else "N/A", 
                 "Dívida/Patr.": f"{divida:.1f}%" if divida else "0.0%",
                 "P/L": pe_str, "P/VP (Múltiplo)": pvp_str, "Div. Yield (DY)": dy_str,
                 "Decisão da Carteira": status_carteira
             })
         except Exception as e:
-            # Printa o erro real no terminal do Streamlit para você monitorar por que falhou
-            print(f"Erro ao analisar ticker {ticker}: {e}")
-            
+            print(f"Erro crítico no ticker {ticker}: {e}")
             is_fii_fallback = "11.SA" in ticker.upper() or ticker.upper() in SCANNER_EUA_REITS
             dados_filtrados.append({
-                "Ticker": ticker.upper(), "Nome": "Erro de Conexão Yahoo", "Classe": "FII / REIT" if is_fii_fallback else "Ação",
+                "Ticker": ticker.upper(), "Nome": "Bloqueio Temporário Yahoo", "Classe": "FII / REIT" if is_fii_fallback else "Ação",
                 "Preço": "N/A", "ROE": "N/A", "Margem Líquida": "N/A", "Dívida/Patr.": "N/A", "P/L": "N/A", "P/VP (Múltiplo)": "N/A",
                 "Div. Yield (DY)": "N/A", "Decisão da Carteira": "⚠️ REAVALIAR"
             })
@@ -189,7 +207,7 @@ if menu == "🎯 Carteira Recomendada":
     mercado = st.selectbox("Escolha o Mercado para Monitorar:", ["Mercado Brasileiro (B3)", "Mercado Internacional (EUA)"])
     
     if st.button("Escanear Mercado Agora"):
-        with st.spinner("Conectando com os servidores globais do Yahoo Finance..."):
+        with st.spinner("Conectando com os servidores globais do Yahoo Finance (com delay de segurança)..."):
             lista_acoes = SCANNER_BR_ACOES if "Brasileiro" in mercado else SCANNER_EUA_ACOES
             lista_fiis = SCANNER_BR_FIIS if "Brasileiro" in mercado else SCANNER_EUA_REITS
             
@@ -227,14 +245,12 @@ elif menu == "🧮 Calculadora de Alocação (Com FIIs)":
     
     valor_total = st.number_input("Digite o montante total que deseja investir:", min_value=100.0, value=10000.0, step=500.0)
     
-    # 60% Renda Fixa / 40% Renda Variável calibrada (30% Brasil / 10% Internacional)
     v_rf = valor_total * 0.60
-    v_acoes_br = valor_total * 0.15      # 15% focado no Brasil
-    v_fiis = valor_total * 0.15          # 15% focado no Brasil
-    v_acoes_global = valor_total * 0.05  # 5% Internacional
-    v_reits = valor_total * 0.05         # 5% Internacional
+    v_acoes_br = valor_total * 0.15
+    v_fiis = valor_total * 0.15
+    v_acoes_global = valor_total * 0.05
+    v_reits = valor_total * 0.05
     
-    # Exibição visual das métricas em 5 colunas estruturadas
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("🔒 Renda Fixa (60%)", f"{v_rf:,.2f}")
     c2.metric("🇧🇷 Ações BR (15%)", f"{v_acoes_br:,.2f}")
@@ -309,7 +325,7 @@ elif menu == "🔍 Busca Global de Qualquer Ativo":
                 with st.spinner(f"Baixando balanços consolidados de {ticker_alvo}..."):
                     df_ind = analisar_saude_ativos([ticker_alvo])
                     
-                    if not df_ind.empty and df_ind.iloc[0]["Nome"] != "Erro de Conexão Yahoo":
+                    if not df_ind.empty and df_ind.iloc[0]["Nome"] != "Bloqueio Temporário Yahoo":
                         st.markdown("### 📊 Indicadores Fundamentalistas Coletados")
                         st.dataframe(df_ind, use_container_width=True)
                         
@@ -317,6 +333,6 @@ elif menu == "🔍 Busca Global de Qualquer Ativo":
                         with st.spinner("Gerando laudo consultivo..."):
                             st.markdown(pedir_analise_ia(df_ind, ticker_alvo))
                     else:
-                        st.error("Este ativo não possui dados fundamentalistas suficientes para um diagnóstico automático.")
+                        st.error("Este ativo está enfrentando bloqueio de requisições do Yahoo no momento.")
         else:
             st.warning("Nenhum ativo encontrado.")
