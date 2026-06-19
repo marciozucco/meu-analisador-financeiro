@@ -74,7 +74,7 @@ def buscar_ticker_global(termo_busca):
 def analisar_saude_ativos(lista_tickers):
     dados_filtrados = []
     
-    if BRAPI_TOKEN == "COLE_SEU_TOKEN_AQUI":
+    if BRAPI_TOKEN == "xKJf3tRSyn6uf6WdurNbt":
         st.error("Por favor, configure um Token válido da Brapi na linha 14 do código.")
         return pd.DataFrame()
 
